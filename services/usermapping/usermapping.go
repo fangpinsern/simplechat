@@ -7,15 +7,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// var socketMap *InMemorySocketMap
+var socketMap *InMemorySocketMap
 
-// func GetInMemorySocketMap() *InMemorySocketMap {
-// 	return socketMap
-// }
+func GetInMemorySocketMap() *InMemorySocketMap {
+	return socketMap
+}
 
-// func InitializeSocketMap() {
-
-// }
+func InitializeSocketMap(ctx context.Context) {
+	socketMap = NewInMemorySocketMap(ctx)
+}
 
 type InMemorySocketMap struct {
 	Users map[string]*websocket.Conn

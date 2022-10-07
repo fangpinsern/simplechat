@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"gochat/services/chat"
 	"gochat/services/usermapping"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -20,13 +24,13 @@ type Message struct {
 }
 
 var upgrader = websocket.Upgrader{}
-var socketMap *usermapping.InMemorySocketMap
+var database *sql.DB
 
 
 func socketHandler(w http.ResponseWriter, r *http.Request) {
 	keys, ok := r.URL.Query()["user"]
 	if !ok || len(keys[0]) < 1 {
-        log.Println("Url Param 'key' is missing")
+        log.Println("Url Param 'user' is missing")
         return
     }
 	log.Println(keys[0])
@@ -38,10 +42,11 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	socketMap.BindUser(userid, conn)
+	usermapping.GetInMemorySocketMap().BindUser(userid, conn)
+
 
 	defer func(){
-		socketMap.UnbindUser(userid)
+		usermapping.GetInMemorySocketMap().UnbindUser(userid)
 		conn.Close()
 	}()
 
@@ -56,18 +61,29 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received: %s, To: %s", msgJson.Text, msgJson.To)
 
 		toUser := msgJson.To
-		toConn, err := socketMap.GetUserSock(toUser)
+		fromUser := msgJson.From
+
+		chatMessage := chat.Message{
+			To: toUser,
+			From: fromUser,
+			Text: msgJson.Text,
+		}
+		err = chat.GetChatInstance().SendMessage(chatMessage)
 		if err != nil {
 			log.Println("user does not exist: ", err)
 			conn.WriteMessage(1, []byte("unsucessful"))
 			continue
 		}
 
-		err = toConn.WriteJSON(msgJson)
-		if err != nil {
-			log.Println("Error during message writing:", err)
-            break
-		}
+		// statement, err := database.Prepare("INSERT INTO chat (reciever, sender, message) VALUES (?, ?, ?)")
+		// if err != nil {
+		// 	log.Fatal("SOMETHING WENT WRONG", err)
+		// 	return
+		// }
+		// _, err = statement.Exec(toUser, fromUser, msgJson.Text)
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
 	}
 }
 
@@ -75,23 +91,63 @@ func home(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Index Page")
 }
 
+type testBody struct {
+	FirstName string `json:"first_name"`
+	LastName string `json:"last_name"`
+}
+
+func testpostHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody testBody
+	// json.Unmarshal(body, requestBody)
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		log.Println("error occured on decoding body: ", err)
+		return
+	}
+
+	response, err := json.Marshal(&requestBody)
+	if err != nil {
+		log.Println("error occured on encoding body: ", err)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    w.Write(response)
+}
+
+func startServer() {
+	myRouter := mux.NewRouter().StrictSlash(true)
+	myRouter.HandleFunc("/", home).Methods("GET")
+	myRouter.HandleFunc("/socket", socketHandler).Methods("GET")
+	myRouter.HandleFunc("/testpost", testpostHandler).Methods("POST")
+
+	srv := &http.Server{
+        Handler:      myRouter,
+        Addr:         "localhost:8080",
+        // Good practice: enforce timeouts for servers you create!
+        WriteTimeout: 15 * time.Second,
+        ReadTimeout:  15 * time.Second,
+    }
+
+	log.Fatal(srv.ListenAndServe())
+}
+
 func main() {
 
-	socketMap = usermapping.NewInMemorySocketMap(context.Background())
+	usermapping.InitializeSocketMap(context.Background())
 
-	database, err := sql.Open("sqlite3", "./helloworld.db")
+	database1, err := sql.Open("sqlite3", "./helloworld.db")
+	database = database1
 	if err != nil {
 		log.Fatal("error ", err)
 	}
 
-	statement, err := database.Prepare("CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT)")
+	statement, err := database.Prepare("CREATE TABLE IF NOT EXISTS chat (id INTEGER PRIMARY KEY, reciever TEXT, sender TEXT, message TEXT)")
 	if err != nil {
 		log.Fatal("error2 ", err)
 	}
 	statement.Exec()
-
-	// statement, _ = database.Prepare("INSERT INTO people (firstname, lastname) VALUES (?, ?)")
-	// statement.Exec("john", "doe")
 
 	rows, _ := database.Query("SELECT id, firstname, lastname FROM people")
 
@@ -106,8 +162,5 @@ func main() {
 
 	fmt.Println("Helloworld")
 
-	http.HandleFunc("/socket", socketHandler)
-	http.HandleFunc("/", home)
-
-	log.Fatal(http.ListenAndServe("localhost:8080", nil))
+	startServer()
 }
