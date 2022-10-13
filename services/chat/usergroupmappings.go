@@ -9,6 +9,8 @@ import (
 UserGroupMapping maps user to group and vice versa
 A user can join multiple groups
 A group can have multiple users
+We define a group type so we are able to differentiate private chats and group chats
+Effectively, private chat is just a group chat with 2 people in it
 */
 
 /*

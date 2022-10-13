@@ -4,7 +4,6 @@ import (
 	"context"
 	"gochat/services/session"
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -20,7 +19,7 @@ type Message struct {
 }
 
 type ChatInstance struct {
-	broadcast chan Message
+	Broadcast chan Message
 	quit chan struct{}
 	sessions *session.Sessions
 	sessionsLookup *session.UserMapping
@@ -30,20 +29,18 @@ type ChatInstance struct {
 
 }
 
-var upgrader = websocket.Upgrader{}
 var (
 	writeWait = 10 * time.Second
-	maxMessageSize int64 = 1024
-	pongWait = 60 * time.Second
-	pingPeriod = (pongWait * 9) / 10
+	pongWait = 60 * time.Second	
 	defaultBroadcastQueueSize = 10000
+	pingPeriod = (pongWait * 9) / 10
 )
 
 const MessageTypeMessage = "message"
 
 func NewChatInstance(ctx context.Context) *ChatInstance {
 	chat := ChatInstance{
-		broadcast: make(chan Message, defaultBroadcastQueueSize),
+		Broadcast: make(chan Message, defaultBroadcastQueueSize),
 		quit: make(chan struct{}),
 		sessions: session.NewSessionsInstance(ctx),
 		sessionsLookup: session.NewUserMappingInstance(ctx),
@@ -65,7 +62,7 @@ func (c *ChatInstance) worker() {
 		case <- c.quit:
 			log.Println("Quit")
 			break loop
-		case msg, ok := <- c.broadcast:
+		case msg, ok := <- c.Broadcast:
 			if !ok {
 				break loop
 			}
@@ -77,38 +74,55 @@ func (c *ChatInstance) worker() {
 			// 	// do some db thing
 			// default:
 			// }
-			c.Broadcast(&msg)
+			c.BroadcastMessage(&msg)
 		}
 
 	}
 }
 
-func (c *ChatInstance) Broadcast(message *Message) error {
+func (c *ChatInstance) BroadcastMessage(message *Message) error {
 	receiver := message.Receiver
 	if receiver == "" {
 		log.Println("WARN: receiver is empty")
 	}
 
-	sessions := c.sessionsLookup.GetSessionIdsOfUser(receiver)
+	group := c.groupsLookup.GetUsers(receiver)
 
-	for _, sid := range sessions {
-		sess := c.sessions.GetSession(sid)
-		if sess == nil {
+	// if no group, assume the reciever is a userId. We create a new group
+	if len(group) == 0 {
+		// abstract this out to search for groups
+		// look for matching group between sender and reciever
+		newGroup := NewGroup("private", "", message.Sender)
+		c.groups.InsertGroup(newGroup)
+		c.groupsLookup.Add(message.Receiver, newGroup.GetGroupId())
+		c.groupsLookup.Add(message.Sender, newGroup.GetGroupId())
+		message.Receiver = newGroup.GetGroupId()
+		group = c.groupsLookup.GetUsers(message.Receiver)
+	}
+
+	for _, userId := range group {
+		if userId == message.Sender {
 			continue
 		}
 
-		err := sess.GetConn().WriteJSON(message)
-		if err != nil {
-			c.Clear(sess)
-			return err
-		}
+		sessions := c.sessionsLookup.GetSessionIdsOfUser(userId)
+		for _, sid := range sessions {
+			sess := c.sessions.GetSession(sid)
+			if sess == nil {
+				continue
+			}
+
+			err := sess.GetConn().WriteJSON(message)
+			if err != nil {
+				c.Clear(sess)
+				return err
+			}
+		}	
 	}
-
 	return nil
-
 }
 
-func (c *ChatInstance) newSession(ws *websocket.Conn) *session.Session {
+func (c *ChatInstance) NewSession(ws *websocket.Conn) *session.Session {
 	sess := session.NewSession(ws)
 	c.sessions.InsertSession(sess)
 	return sess
@@ -135,57 +149,8 @@ func (c *ChatInstance) Clear(sess *session.Session) {
 	c.sessions.DeleteSession(sessId)
 }
 
-func (c *ChatInstance) ServeWS() func (w http.ResponseWriter, r *http.Request) {
-	handler := func (w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 
-		ws, err := upgrader.Upgrade(w, r, nil)
-
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		defer ws.Close()
-
-		// add authentication
-
-		userId := "helloworld"
-
-		sess := c.newSession(ws)
-		close := c.Bind(userId, sess.GetSessionId())
-		defer close()
-
-		ws.SetReadLimit(maxMessageSize)
-		ws.SetReadDeadline(time.Now().Add(60*time.Second))
-		ws.SetPongHandler(func(string) error {
-			ws.SetReadDeadline(time.Now().Add(pongWait))
-			return nil
-		})
-		go ping(ws)
-		
-		for {
-			var msg Message
-			err := ws.ReadJSON(&msg)
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err) {
-					// split the different type of closes
-					log.Println("error occured, unexpected close ", err)
-				}
-				break
-			}
-			msg.Sender = userId
-			c.broadcast <- msg
-		}
-	}
-
-	return handler
-}
-
-func ping(ws *websocket.Conn) {
+func Ping(ws *websocket.Conn) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()

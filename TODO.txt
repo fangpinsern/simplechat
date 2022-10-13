@@ -1,0 +1,10 @@
+[] Revert back to previous group design
+[] User authentication and authorization
+[] Test cases
+
+//
+Private Message Flow:
+1. Sender initiates a group creation with reciever
+2. Group is saved into db
+3. Sender sends the Message
+4. Receiver receives the Message

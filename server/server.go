@@ -3,28 +3,46 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"gochat/handlers"
+	"gochat/services/auth"
 	"gochat/services/chat"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 )
 
 type Server struct {
 }
 
-var upgrader = websocket.Upgrader{}
+// var upgrader = websocket.Upgrader{}
+var(
+	testUserDB = map[string]auth.User{
+		"user1": {
+			Username: "user1",
+			Password: "password1",
+		},
+		"user2": {
+			Username: "user2",
+			Password: "password2",
+		},
+	}
+)
+
 
 func StartServer() {
 	myRouter := mux.NewRouter().StrictSlash(true)
 
-	myRouter.HandleFunc("/", home).Methods("GET")
-	myRouter.HandleFunc("/socket", chat.NewChatInstance(context.Background()).ServeWS()).Methods("GET")
+	chatInstance := chat.NewChatInstance(context.Background())
+	authInstance := auth.NewAuthorizeInstance(context.Background(), testUserDB)
+
+	// mw := negroni
+	myRouter.HandleFunc("/", NotImplemented).Methods("GET")
+	myRouter.HandleFunc("/socket", handlers.ServeWS(context.Background(), chatInstance)).Methods("GET")
 	myRouter.HandleFunc("/testpost", testpostHandler).Methods("POST")
 
+	myRouter.HandleFunc("/auth/login", handlers.Login(context.Background(), authInstance)).Methods("POST")
 	srv := &http.Server{
         Handler:      myRouter,
         Addr:         "localhost:8080",
@@ -35,6 +53,10 @@ func StartServer() {
 
 	log.Fatal(srv.ListenAndServe())
 }
+
+var NotImplemented = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+	w.Write([]byte("Not Implemented"))
+  })
 
 // func socketHandler(w http.ResponseWriter, r *http.Request) {
 // 	keys, ok := r.URL.Query()["user"]
@@ -94,9 +116,9 @@ func StartServer() {
 // 	}
 // }
 
-func home(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Index Page")
-}
+// func home(w http.ResponseWriter, r *http.Request) {
+//     fmt.Fprintf(w, "Index Page")
+// }
 
 type testBody struct {
 	FirstName string `json:"first_name"`
