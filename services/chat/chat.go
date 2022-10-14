@@ -9,6 +9,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	MESSAGE_TYPE_PRIVATE = "private"
+	MESSAGE_TYPE_GROUP = "group"
+)
 type Message struct {
 	Text string `json:"data"`
 	Id string `json:"id"`
@@ -82,24 +86,36 @@ func (c *ChatInstance) worker() {
 
 func (c *ChatInstance) BroadcastMessage(message *Message) error {
 	receiver := message.Receiver
-	if receiver == "" {
+	if receiver == "" { 
 		log.Println("WARN: receiver is empty")
 	}
 
-	group := c.groupsLookup.GetUsers(receiver)
+	// check message type
+	// if private, then look at private chat lookup
+	// if group, then look at group chat lookup
 
-	// if no group, assume the reciever is a userId. We create a new group
-	if len(group) == 0 {
-		// abstract this out to search for groups
-		// look for matching group between sender and reciever
-		newGroup := NewGroup("private", "", message.Sender)
-		c.groups.InsertGroup(newGroup)
-		c.groupsLookup.Add(message.Receiver, newGroup.GetGroupId())
-		c.groupsLookup.Add(message.Sender, newGroup.GetGroupId())
-		message.Receiver = newGroup.GetGroupId()
-		group = c.groupsLookup.GetUsers(message.Receiver)
+	var group []string
+	if message.Type == MESSAGE_TYPE_PRIVATE {
+		group = c.groupsLookup.GetUsersPrivate(message.Sender, message.Receiver)
+		if len(group) == 0 {
+			// abstract this out to search for groups
+			// look for matching group between sender and reciever
+			newGroup := NewPersonalChat(message.Receiver, message.Sender)
+			log.Println(message.Sender)
+			c.groups.InsertGroup(newGroup)
+			c.groupsLookup.Add(message.Receiver, newGroup.GetGroupId())
+			c.groupsLookup.Add(message.Sender, newGroup.GetGroupId())
+			
+			group = c.groupsLookup.GetUsersPrivate(message.Sender, message.Receiver)
+		}
+	} else {
+		group = c.groupsLookup.GetUsers(receiver)
+		if len(group) == 0 {
+			log.Print("group does not exist")
+			return nil
+		}
 	}
-
+	
 	for _, userId := range group {
 		if userId == message.Sender {
 			continue

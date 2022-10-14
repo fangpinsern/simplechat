@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"sort"
 	"sync"
 )
 
+const (
+	GROUP_TYPE_PRIVATE = "private"
+	GROUP_TYPE_GROUP = "group"
+)
 type Group struct {
 	id string
 	groupType string
@@ -26,12 +31,31 @@ func NewGroupsInstance(ctx context.Context) *Groups {
 }
 
 // TODO: Create type for better group creation
-func NewGroup(groupType, groupName string, admin string) *Group {
+func NewGroup(groupName string, admin string) *Group {
 	return &Group{
 		id: randomString(32),
 		groupName: groupName,
-		groupType: groupType,
+		groupType: GROUP_TYPE_GROUP,
 		admin: map[string]bool{admin: true},
+	}
+}
+
+func MakePersonalChatGroupId(user1Id, user2Id string) string {
+	userIds := []string{user1Id,user2Id}
+	sort.Strings(userIds)
+	groupId := ""
+	for _, userId := range userIds {
+		groupId = groupId + userId
+	}
+	return groupId
+}
+
+func NewPersonalChat(user1Id, user2Id string) *Group {
+	groupId := MakePersonalChatGroupId(user1Id, user2Id)
+	return &Group{
+		id: groupId,
+		groupType: GROUP_TYPE_PRIVATE,
+		admin: map[string]bool{user1Id: true, user2Id: true},
 	}
 }
 

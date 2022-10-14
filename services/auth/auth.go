@@ -35,8 +35,13 @@ type Credentials struct {
 // Create a struct that will be encoded to a JWT.
 // We add jwt.StandardClaims as an embedded type, to provide fields like expiry time
 type Claims struct {
-	Username string `json:"username"`
+	UserInfo UserInfo `json:"user_info"`
 	jwt.RegisteredClaims
+}
+
+type UserInfo struct {
+	Id string `json:"id"`
+	Username string `json:"username"`
 }
 
 func NewAuthorizeInstance(ctx context.Context, userDb map[string]User) *AuthInstance {
@@ -54,7 +59,9 @@ func (a *AuthInstance) Login(cred Credentials) (string,error)  {
 
 	expirationTime := time.Now().Add(5 * time.Hour)
 	claims := &Claims{
-		Username: cred.Username,
+		UserInfo: UserInfo{
+			Username: cred.Username,
+		},
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: &jwt.NumericDate{
 				Time: expirationTime,

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"gochat/services/chat"
+	"gochat/utils"
 	"log"
 	"net/http"
 	"time"
@@ -35,15 +36,7 @@ func ServeWS(ctx context.Context, c *chat.ChatInstance) func (w http.ResponseWri
 
 		defer ws.Close()
 
-		// add authentication
-
-		keys, ok := r.URL.Query()["user"]
-		if !ok || len(keys[0]) < 1 {
-			log.Println("Url Param 'user' is missing")
-			return
-		}
-		log.Println(keys[0])
-		userId := keys[0]
+		userId:= utils.GetUserId(r.Context())
 
 		sess := c.NewSession(ws)
 		close := c.Bind(userId, sess.GetSessionId())
@@ -68,6 +61,8 @@ func ServeWS(ctx context.Context, c *chat.ChatInstance) func (w http.ResponseWri
 				break
 			}
 			msg.Sender = userId
+			msg.Timestamp = time.Now().Unix()
+			log.Println("message is ", userId)
 			c.Broadcast <- msg
 		}
 	}

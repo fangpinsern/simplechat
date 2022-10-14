@@ -11,10 +11,12 @@ import (
 
 var users = map[string]auth.User{
 	"user1": {
+		Id: "1",
 		Username: "user1",
 		Password: "password1",
 	},
 	"user2": {
+		Id: "2",
 		Username: "user2",
 		Password: "password2",
 	},
@@ -42,7 +44,7 @@ func TestAuth(t *testing.T) {
 
 	claims, err := authService.ValidateToken(loginToken)
 	require.Nil(t, err)
-	require.Equal(t, claims.Username, username)
+	require.Equal(t, claims.UserInfo.Username, username)
 
 	// invalid login - wrong password
 

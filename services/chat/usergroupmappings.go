@@ -91,5 +91,16 @@ func (g *UserGroupMapping) GetUsers(groupId string) []string {
 	return key
 }
 
+func (g *UserGroupMapping) GetUsersPrivate(userId1, userId2 string) []string {
+	groupId := MakePersonalChatGroupId(userId1, userId2)
+	key := make([]string, 0)
+	users := g.groupToUserMap[groupId]
+	for userId := range users {
+		key = append(key, userId)
+	}
+
+	return key
+}
+
 
 
